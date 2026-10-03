@@ -130,7 +130,7 @@ def buscar_ipca_12m():
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
     """AwesomeAPI: dólar, euro e bitcoin em reais."""
-    dados = _get_json("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL")
+    dados = _get_json("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
     if not dados:
         return None
     try:
