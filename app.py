@@ -104,7 +104,8 @@ def _get_json(url):
         r = requests.get(url, timeout=6)
         r.raise_for_status()
         return r.json()
-    except Exception:
+    except Exception as erro:
+        print(f"⚠️ Erro de conexão com a API: {erro}")
         return None  # o app continua funcionando se a API estiver fora do ar
 
 
