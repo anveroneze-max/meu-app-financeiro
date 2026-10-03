@@ -1,16 +1,22 @@
 import streamlit as st
 import pandas as pd
 import os
-import time  # <-- Biblioteca nova para dar um tempinho antes de atualizar
+import time
 from datetime import datetime
 
 st.set_page_config(page_title="App Financeiro", page_icon="💰", layout="centered")
+
+# ==========================================
+# FUNÇÃO NOVA: PADRÃO BRASILEIRO DE MOEDA
+# ==========================================
+def formatar_moeda(valor):
+    # Formata o número americano (200,345.30) e inverte os pontos e vírgulas
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # Define os arquivos onde os dados serão salvos
 ARQUIVO_GASTOS = 'meus_gastos.csv'
 ARQUIVO_RECEITAS = 'minhas_receitas.csv'
 
-# Função para criar os arquivos ou atualizar os antigos
 def inicializar_dados():
     if not os.path.exists(ARQUIVO_RECEITAS):
         pd.DataFrame(columns=['Data', 'Tipo', 'Origem', 'Valor']).to_csv(ARQUIVO_RECEITAS, index=False)
@@ -30,9 +36,16 @@ def inicializar_dados():
 
 inicializar_dados()
 
-# Carrega os dados logo ao abrir o app
 df_gastos = pd.read_csv(ARQUIVO_GASTOS)
 df_receitas = pd.read_csv(ARQUIVO_RECEITAS)
+
+# ==========================================
+# CORREÇÃO DE DATAS ANTIGAS PARA DD/MM/AAAA
+# ==========================================
+if not df_gastos.empty:
+    df_gastos['Data'] = pd.to_datetime(df_gastos['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
+if not df_receitas.empty:
+    df_receitas['Data'] = pd.to_datetime(df_receitas['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
 
 st.title("Meu Assessor 💰")
 
@@ -59,14 +72,19 @@ with aba_resumo:
     saldo_conta = entradas_conta - saidas_conta
     
     col1, col2 = st.columns(2)
-    col1.metric("💳 Saldo em Conta", f"R$ {saldo_conta:.2f}")
-    col2.metric("🍽️ Saldo VR", f"R$ {saldo_vr:.2f}")
+    # Mostra o saldo com a nova formatação
+    col1.metric("💳 Saldo em Conta", formatar_moeda(saldo_conta))
+    col2.metric("🍽️ Saldo VR", formatar_moeda(saldo_vr))
     
     st.divider()
 
     if not df_gastos.empty:
         st.subheader("Histórico de Gastos")
-        st.dataframe(df_gastos, use_container_width=True)
+        
+        # Cria uma cópia da tabela só para mostrar formatada na tela (sem quebrar os cálculos)
+        df_mostrar = df_gastos.copy()
+        df_mostrar['Valor'] = df_mostrar['Valor'].apply(formatar_moeda)
+        st.dataframe(df_mostrar, use_container_width=True)
         
         st.write("**Gastos por Categoria**")
         st.bar_chart(df_gastos.groupby('Categoria')['Valor'].sum())
@@ -74,50 +92,54 @@ with aba_resumo:
         st.info("Nenhum gasto registrado.")
 
 # ==========================================
-# CONTEÚDO DA ABA 2: GASTOS (CORRIGIDA)
+# CONTEÚDO DA ABA 2: GASTOS 
 # ==========================================
 with aba_gastos:
     st.header("Lançar Gasto")
     
     with st.form("form_gasto", clear_on_submit=True):
-        data = st.date_input("Data da Compra", datetime.today())
+        # Data agora é forçada no visual brasileiro
+        data = st.date_input("Data da Compra", datetime.today(), format="DD/MM/YYYY")
         categoria = st.selectbox("Categoria", ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Educação", "Assinaturas", "Outros"])
         descricao = st.text_input("Descrição (Ex: Supermercado)")
         forma_pagamento = st.selectbox("Forma de Pagamento", ["Cartão de Crédito", "Cartão de Débito", "PIX", "Dinheiro", "Vale Refeição"])
-        valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
         submit = st.form_submit_button("Salvar Gasto")
 
         if submit:
-            novo_gasto = pd.DataFrame([[data, categoria, descricao, forma_pagamento, valor]], 
+            # Salva a data no banco de dados já no formato brasileiro
+            data_str = data.strftime('%d/%m/%Y')
+            novo_gasto = pd.DataFrame([[data_str, categoria, descricao, forma_pagamento, valor]], 
                                       columns=['Data', 'Categoria', 'Descrição', 'Forma de Pagamento', 'Valor'])
             df_gastos = pd.concat([df_gastos, novo_gasto], ignore_index=True)
             df_gastos.to_csv(ARQUIVO_GASTOS, index=False)
             
             st.success(f"Gasto salvo com sucesso!")
-            time.sleep(1) # Aguarda 1 segundo para você ler a mensagem
-            st.rerun()    # Atualiza o app automaticamente!
+            time.sleep(1) 
+            st.rerun()    
 
 # ==========================================
-# CONTEÚDO DA ABA 3: RECEITAS (CORRIGIDA)
+# CONTEÚDO DA ABA 3: RECEITAS 
 # ==========================================
 with aba_receitas:
     st.header("Entrada de Dinheiro / Benefício")
     
     with st.form("form_receita", clear_on_submit=True):
         tipo_entrada = st.selectbox("Onde esse valor entrou?", ["Conta Corrente (Dinheiro, Pix, Salário)", "Vale Refeição"])
-        data = st.date_input("Data do Recebimento", datetime.today())
+        data = st.date_input("Data do Recebimento", datetime.today(), format="DD/MM/YYYY")
         origem = st.text_input("Descrição (Ex: Salário, Recarga do VR)")
-        valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
         submit = st.form_submit_button("Salvar Entrada")
 
         if submit:
-            nova_receita = pd.DataFrame([[data, tipo_entrada, origem, valor]], columns=['Data', 'Tipo', 'Origem', 'Valor'])
+            data_str = data.strftime('%d/%m/%Y')
+            nova_receita = pd.DataFrame([[data_str, tipo_entrada, origem, valor]], columns=['Data', 'Tipo', 'Origem', 'Valor'])
             df_receitas = pd.concat([df_receitas, nova_receita], ignore_index=True)
             df_receitas.to_csv(ARQUIVO_RECEITAS, index=False)
             
             st.success(f"Entrada salva com sucesso!")
-            time.sleep(1) # Aguarda 1 segundo
-            st.rerun()    # Atualiza o app automaticamente!
+            time.sleep(1) 
+            st.rerun()    
 
 # ==========================================
 # CONTEÚDO DA ABA 4: GERENCIAR
@@ -129,7 +151,8 @@ with aba_gerenciar:
     
     if tipo_del == "Gastos":
         if not df_gastos.empty:
-            opcoes = [f"ID {i} | {row['Data']} | {row['Descrição']} | R$ {row['Valor']}" for i, row in df_gastos.iterrows()]
+            # Opções de exclusão agora mostram a moeda formatada
+            opcoes = [f"ID {i} | {row['Data']} | {row['Descrição']} | {formatar_moeda(row['Valor'])}" for i, row in df_gastos.iterrows()]
             escolha = st.selectbox("Selecione o gasto:", opcoes)
             
             if st.button("Excluir Gasto Selecionado"):
@@ -144,7 +167,7 @@ with aba_gerenciar:
             
     elif tipo_del == "Receitas":
         if not df_receitas.empty:
-            opcoes = [f"ID {i} | {row['Data']} | {row.get('Tipo', 'Conta')} - {row['Origem']} | R$ {row['Valor']}" for i, row in df_receitas.iterrows()]
+            opcoes = [f"ID {i} | {row['Data']} | {row.get('Tipo', 'Conta')} - {row['Origem']} | {formatar_moeda(row['Valor'])}" for i, row in df_receitas.iterrows()]
             escolha = st.selectbox("Selecione a receita:", opcoes)
             
             if st.button("Excluir Receita Selecionada"):
@@ -168,28 +191,28 @@ with aba_assessor:
     sobra_real = entradas_conta - saidas_conta
     
     st.write("Eu analiso **apenas o seu saldo em dinheiro (fora o VR)** para recomendar investimentos, afinal, o Vale Refeição não pode ser investido.")
-    st.write(f"**Saldo em Conta (Dinheiro Disponível):** R$ {sobra_real:.2f}")
+    st.write(f"**Saldo em Conta (Dinheiro Disponível):** {formatar_moeda(sobra_real)}")
 
     if entradas_conta > 0:
         if sobra_real <= 0:
             st.error("⚠️ Você gastou todo o seu dinheiro da conta ou está no negativo. Ajuste o orçamento antes de investir.")
         else:
-            st.success(f"Você tem **R$ {sobra_real:.2f}** livres na conta para investir.")
+            st.success(f"Você tem **{formatar_moeda(sobra_real)}** livres na conta para investir.")
             perfil = st.radio("Seu perfil de investidor:", 
                               ["Conservador", "Moderado", "Arrojado"])
             st.subheader("Recomendação de Carteira:")
             
             if "Conservador" in perfil:
-                st.write(f"🛡️ **Reserva de Emergência:** R$ {sobra_real * 0.80:.2f} (80%)")
-                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra_real * 0.20:.2f} (20%)")
+                st.write(f"🛡️ **Reserva de Emergência:** {formatar_moeda(sobra_real * 0.80)} (80%)")
+                st.write(f"🏢 **Fundos Imobiliários:** {formatar_moeda(sobra_real * 0.20)} (20%)")
             elif "Moderado" in perfil:
-                st.write(f"🛡️ **Tesouro IPCA+:** R$ {sobra_real * 0.50:.2f} (50%)")
-                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra_real * 0.30:.2f} (30%)")
-                st.write(f"📈 **Ações/ETFs:** R$ {sobra_real * 0.20:.2f} (20%)")
+                st.write(f"🛡️ **Tesouro IPCA+:** {formatar_moeda(sobra_real * 0.50)} (50%)")
+                st.write(f"🏢 **Fundos Imobiliários:** {formatar_moeda(sobra_real * 0.30)} (30%)")
+                st.write(f"📈 **Ações/ETFs:** {formatar_moeda(sobra_real * 0.20)} (20%)")
             else:
-                st.write(f"📈 **Ações e ETFs Globais:** R$ {sobra_real * 0.40:.2f} (40%)")
-                st.write(f"🏢 **Fundos Imobiliários e Fiagros:** R$ {sobra_real * 0.30:.2f} (30%)")
-                st.write(f"🛡️ **Renda Fixa:** R$ {sobra_real * 0.20:.2f} (20%)")
-                st.write(f"₿ **Criptomoedas:** R$ {sobra_real * 0.10:.2f} (10%)")
+                st.write(f"📈 **Ações e ETFs Globais:** {formatar_moeda(sobra_real * 0.40)} (40%)")
+                st.write(f"🏢 **Fundos Imobiliários e Fiagros:** {formatar_moeda(sobra_real * 0.30)} (30%)")
+                st.write(f"🛡️ **Renda Fixa:** {formatar_moeda(sobra_real * 0.20)} (20%)")
+                st.write(f"₿ **Criptomoedas:** {formatar_moeda(sobra_real * 0.10)} (10%)")
     else:
         st.info("Registre algum salário/dinheiro na Conta Corrente primeiro!")
