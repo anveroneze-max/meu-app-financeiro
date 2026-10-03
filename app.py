@@ -40,19 +40,16 @@ def formatar_moeda(valor):
 
 
 def carregar(arquivo, colunas):
-    """Lê o CSV, migra formatos antigos e devolve Data como datetime."""
     if not os.path.exists(arquivo):
         return pd.DataFrame(columns=colunas).astype({"Data": "datetime64[ns]"})
 
     df = pd.read_csv(arquivo)
 
-    # Migrações de arquivos antigos
     if "Tipo" in colunas and "Tipo" not in df.columns:
         df["Tipo"] = "Conta Corrente"
     if "Forma de Pagamento" in colunas and "Forma de Pagamento" not in df.columns:
         df["Forma de Pagamento"] = "Dinheiro"
     if "Tipo" in df.columns:
-        # Normaliza textos longos como "Conta Corrente (Dinheiro, Pix, Salário)"
         df["Tipo"] = df["Tipo"].apply(
             lambda t: "Vale Refeição" if "Vale" in str(t) else "Conta Corrente"
         )
@@ -76,7 +73,6 @@ def adicionar(df, linha, colunas, arquivo):
 
 
 def calcular_saldos(rec, gas):
-    """Retorna (saldo_conta, saldo_vr, fatura_aberta)."""
     forma = gas["Forma de Pagamento"]
     ent_vr = rec.loc[rec["Tipo"] == "Vale Refeição", "Valor"].sum()
     ent_cc = rec.loc[rec["Tipo"] != "Vale Refeição", "Valor"].sum()
@@ -84,7 +80,7 @@ def calcular_saldos(rec, gas):
     sai_vr = gas.loc[forma == "Vale Refeição", "Valor"].sum()
     credito = gas.loc[forma == "Cartão de Crédito", "Valor"].sum()
     pago_fatura = gas.loc[forma == "Pagamento de Fatura", "Valor"].sum()
-    # Crédito só sai da conta quando a fatura é paga
+    
     sai_conta = gas.loc[~forma.isin(["Vale Refeição", "Cartão de Crédito"]), "Valor"].sum()
 
     return ent_cc - sai_conta, ent_vr - sai_vr, credito - pago_fatura
@@ -97,7 +93,7 @@ def filtrar_mes(df, mes):
 
 
 # ==========================================
-# APIs GRATUITAS (sem chave)
+# APIs GRATUITAS (sem chave) - Amigáveis com a Nuvem
 # ==========================================
 def _get_json(url):
     try:
@@ -109,32 +105,24 @@ def _get_json(url):
         print(f"⚠️ Erro de conexão com a API: {erro}")
         return None
 
-
+# NOVA FUNÇÃO PARA PUXAR SELIC E IPCA (Substituiu o Banco Central)
 @st.cache_data(ttl=3600)
-def buscar_selic():
-    """Banco Central (SGS 432): meta Selic, % ao ano."""
-    dados = _get_json("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json")
-    return float(dados[0]["valor"]) if dados else None
+def buscar_taxas():
+    """BrasilAPI: Selic e IPCA (Amigável com a Nuvem)"""
+    dados = _get_json("https://brasilapi.com.br/api/taxas/v1")
+    selic, ipca = None, None
+    if dados:
+        for taxa in dados:
+            if taxa.get("nome") == "Selic":
+                selic = float(taxa.get("valor"))
+            elif taxa.get("nome") == "IPCA":
+                ipca = float(taxa.get("valor"))
+    return selic, ipca
 
 
-@st.cache_data(ttl=3600)
-def buscar_ipca_12m():
-    """Banco Central (SGS 433): IPCA mensal, encadeado nos últimos 12 meses."""
-    dados = _get_json("https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/12?formato=json")
-    if not dados or len(dados) < 12:
-        return None
-    acumulado = 1.0
-    for item in dados:
-        acumulado *= 1 + float(item["valor"]) / 100
-    return (acumulado - 1) * 100
-
-
-# ==========================================
-# A MÁGICA ACONTECE AQUI: NOVA API DA HG BRASIL
-# ==========================================
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
-    """HG Brasil API: dólar, euro e bitcoin em reais (Amigável com a Nuvem)"""
+    """HG Brasil API: dólar, euro e bitcoin."""
     dados = _get_json("https://api.hgbrasil.com/finance")
     if not dados or "results" not in dados:
         return None
@@ -209,7 +197,7 @@ with aba_resumo:
         else:
             st.caption("Cotações indisponíveis no momento.")
 
-        selic, ipca = buscar_selic(), buscar_ipca_12m()
+        selic, ipca = buscar_taxas()
         c1, c2 = st.columns(2)
         c1.metric("Selic (meta)", f"{selic:.2f}% a.a.".replace(".", ",") if selic else "—")
         c2.metric("IPCA 12 meses", f"{ipca:.2f}%".replace(".", ",") if ipca else "—")
@@ -219,7 +207,7 @@ with aba_resumo:
             d, nome = feriado
             st.caption(f"📅 Próximo feriado: {nome} ({d.strftime(FMT_CSV)}). "
                        "Atenção a vencimentos de boletos, que podem cair em dia não útil.")
-        st.caption("Fontes: Banco Central, HG Brasil e BrasilAPI.") # Atualizado para HG Brasil
+        st.caption("Fontes: HG Brasil e BrasilAPI.")
 
     st.divider()
 
@@ -228,7 +216,6 @@ with aba_resumo:
     mes = st.selectbox("Período", opcoes_mes)
 
     gastos_mes = filtrar_mes(df_gastos, mes)
-    # Pagamento de fatura não é gasto novo (já foi contado no crédito)
     gastos_reais = gastos_mes[gastos_mes["Forma de Pagamento"] != "Pagamento de Fatura"]
 
     if gastos_reais.empty:
@@ -369,7 +356,7 @@ with aba_assessor:
         for nome, pct in CARTEIRAS[perfil]:
             st.write(f"{nome}: **{formatar_moeda(disponivel * pct)}** ({pct:.0%})")
 
-        selic, ipca = buscar_selic(), buscar_ipca_12m()
+        selic, ipca = buscar_taxas()
         if selic:
             mensal_bruto = (1 + selic / 100) ** (1 / 12) - 1
             st.info(
