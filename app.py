@@ -2,6 +2,7 @@ import os
 from datetime import date
 
 import pandas as pd
+import requests
 import streamlit as st
 
 st.set_page_config(page_title="App Financeiro", page_icon="💰", layout="centered")
@@ -96,6 +97,73 @@ def filtrar_mes(df, mes):
 
 
 # ==========================================
+# APIs GRATUITAS (sem chave) - todas com cache e tolerância a falhas
+# ==========================================
+def _get_json(url):
+    try:
+        r = requests.get(url, timeout=6)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None  # o app continua funcionando se a API estiver fora do ar
+
+
+@st.cache_data(ttl=3600)
+def buscar_selic():
+    """Banco Central (SGS 432): meta Selic, % ao ano."""
+    dados = _get_json("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json")
+    return float(dados[0]["valor"]) if dados else None
+
+
+@st.cache_data(ttl=3600)
+def buscar_ipca_12m():
+    """Banco Central (SGS 433): IPCA mensal, encadeado nos últimos 12 meses."""
+    dados = _get_json("https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/12?formato=json")
+    if not dados or len(dados) < 12:
+        return None
+    acumulado = 1.0
+    for item in dados:
+        acumulado *= 1 + float(item["valor"]) / 100
+    return (acumulado - 1) * 100
+
+
+@st.cache_data(ttl=300)
+def buscar_cotacoes():
+    """AwesomeAPI: dólar, euro e bitcoin em reais."""
+    dados = _get_json("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL")
+    if not dados:
+        return None
+    try:
+        return {
+            nome: (float(dados[chave]["bid"]), float(dados[chave]["pctChange"]))
+            for nome, chave in [("💵 Dólar", "USDBRL"), ("💶 Euro", "EURBRL"), ("₿ Bitcoin", "BTCBRL")]
+        }
+    except (KeyError, ValueError):
+        return None
+
+
+@st.cache_data(ttl=86400)
+def buscar_feriados(ano):
+    """BrasilAPI: feriados nacionais do ano."""
+    dados = _get_json(f"https://brasilapi.com.br/api/feriados/v1/{ano}")
+    return dados or []
+
+
+def proximo_feriado():
+    hoje = date.today()
+    futuros = []
+    for ano in (hoje.year, hoje.year + 1):
+        for f in buscar_feriados(ano):
+            try:
+                d = pd.to_datetime(f["date"]).date()
+            except Exception:
+                continue
+            if d >= hoje:
+                futuros.append((d, f["name"]))
+    return min(futuros) if futuros else None
+
+
+# ==========================================
 # DADOS
 # ==========================================
 df_gastos = carregar(ARQUIVO_GASTOS, COLS_GASTOS)
@@ -124,6 +192,27 @@ with aba_resumo:
 
     if saldo_vr < 0:
         st.warning("Seus gastos com Vale Refeição superam o saldo do VR. Confira os lançamentos.")
+
+    with st.expander("🌎 Mercado hoje"):
+        cotacoes = buscar_cotacoes()
+        if cotacoes:
+            cols = st.columns(len(cotacoes))
+            for col, (nome, (preco, var)) in zip(cols, cotacoes.items()):
+                col.metric(nome, formatar_moeda(preco), f"{var:+.2f}%")
+        else:
+            st.caption("Cotações indisponíveis no momento.")
+
+        selic, ipca = buscar_selic(), buscar_ipca_12m()
+        c1, c2 = st.columns(2)
+        c1.metric("Selic (meta)", f"{selic:.2f}% a.a.".replace(".", ",") if selic else "—")
+        c2.metric("IPCA 12 meses", f"{ipca:.2f}%".replace(".", ",") if ipca else "—")
+
+        feriado = proximo_feriado()
+        if feriado:
+            d, nome = feriado
+            st.caption(f"📅 Próximo feriado: {nome} ({d.strftime(FMT_CSV)}). "
+                       "Atenção a vencimentos de boletos, que podem cair em dia não útil.")
+        st.caption("Fontes: Banco Central, AwesomeAPI e BrasilAPI.")
 
     st.divider()
 
@@ -272,6 +361,19 @@ with aba_assessor:
         st.subheader("Sugestão de Carteira")
         for nome, pct in CARTEIRAS[perfil]:
             st.write(f"{nome}: **{formatar_moeda(disponivel * pct)}** ({pct:.0%})")
+
+        selic, ipca = buscar_selic(), buscar_ipca_12m()
+        if selic:
+            mensal_bruto = (1 + selic / 100) ** (1 / 12) - 1
+            st.info(
+                f"Com a Selic em {selic:.2f}% a.a. (referência para renda fixa pós-fixada), "
+                f"{formatar_moeda(disponivel)} renderiam cerca de "
+                f"**{formatar_moeda(disponivel * mensal_bruto)} por mês**, valor bruto, antes do IR."
+            )
+            if ipca is not None:
+                juro_real = ((1 + selic / 100) / (1 + ipca / 100) - 1) * 100
+                st.caption(f"IPCA em 12 meses: {ipca:.2f}%. Juro real aproximado: {juro_real:.2f}% a.a. "
+                           "Dinheiro parado na conta perde para a inflação.")
 
         media_gastos = df_gastos[df_gastos["Forma de Pagamento"] != "Pagamento de Fatura"]
         if not media_gastos.empty:
