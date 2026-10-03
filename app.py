@@ -104,8 +104,7 @@ def _get_json(url):
         r = requests.get(url, timeout=6)
         r.raise_for_status()
         return r.json()
-    except Exception as erro:
-        print(f"⚠️ Erro de conexão com a API: {erro}")
+    except Exception:
         return None  # o app continua funcionando se a API estiver fora do ar
 
 
@@ -131,7 +130,7 @@ def buscar_ipca_12m():
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
     """AwesomeAPI: dólar, euro e bitcoin em reais."""
-    dados = _get_json("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
+    dados = _get_json("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL")
     if not dados:
         return None
     try:
