@@ -97,15 +97,16 @@ def filtrar_mes(df, mes):
 
 
 # ==========================================
-# APIs GRATUITAS (sem chave) - todas com cache e tolerância a falhas
+# APIs GRATUITAS (sem chave) - com disfarce para nuvem
 # ==========================================
 def _get_json(url):
     try:
-        r = requests.get(url, timeout=6)
+        # Colocando um "disfarce" de navegador para a API não bloquear o servidor nas nuvens
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        r = requests.get(url, headers=headers, timeout=10) # Aumentado o tempo limite para 10 segundos
         r.raise_for_status()
         return r.json()
     except Exception as erro:
-        # AGORA ELE IMPRIME O ERRO NA TELA PRETA (TERMINAL)
         print(f"⚠️ Erro de conexão com a API: {erro}")
         return None  # o app continua funcionando se a API estiver fora do ar
 
@@ -132,7 +133,6 @@ def buscar_ipca_12m():
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
     """AwesomeAPI: dólar, euro e bitcoin em reais."""
-    # LINK DA API ATUALIZADO AQUI
     dados = _get_json("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
     if not dados:
         return None
