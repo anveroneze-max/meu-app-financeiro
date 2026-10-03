@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import time  # <-- Biblioteca nova para dar um tempinho antes de atualizar
 from datetime import datetime
 
 st.set_page_config(page_title="App Financeiro", page_icon="💰", layout="centered")
@@ -11,16 +12,14 @@ ARQUIVO_RECEITAS = 'minhas_receitas.csv'
 
 # Função para criar os arquivos ou atualizar os antigos
 def inicializar_dados():
-    # Atualiza ou cria arquivo de Receitas com a nova coluna "Tipo"
     if not os.path.exists(ARQUIVO_RECEITAS):
         pd.DataFrame(columns=['Data', 'Tipo', 'Origem', 'Valor']).to_csv(ARQUIVO_RECEITAS, index=False)
     else:
         df_rec = pd.read_csv(ARQUIVO_RECEITAS)
         if 'Tipo' not in df_rec.columns:
-            df_rec['Tipo'] = 'Conta Corrente' # Todo registro antigo vira Conta Corrente
+            df_rec['Tipo'] = 'Conta Corrente'
             df_rec.to_csv(ARQUIVO_RECEITAS, index=False)
             
-    # Atualiza ou cria arquivo de Gastos
     if not os.path.exists(ARQUIVO_GASTOS):
         pd.DataFrame(columns=['Data', 'Categoria', 'Descrição', 'Forma de Pagamento', 'Valor']).to_csv(ARQUIVO_GASTOS, index=False)
     else:
@@ -31,7 +30,7 @@ def inicializar_dados():
 
 inicializar_dados()
 
-# Carrega os dados
+# Carrega os dados logo ao abrir o app
 df_gastos = pd.read_csv(ARQUIVO_GASTOS)
 df_receitas = pd.read_csv(ARQUIVO_RECEITAS)
 
@@ -46,27 +45,24 @@ aba_resumo, aba_gastos, aba_receitas, aba_gerenciar, aba_assessor = st.tabs([
 ])
 
 # ==========================================
-# CONTEÚDO DA ABA 1: RESUMO (ATUALIZADA)
+# CONTEÚDO DA ABA 1: RESUMO 
 # ==========================================
 with aba_resumo:
     st.header("Painel Financeiro")
     
-    # Cálculos Exclusivos para o Vale Refeição
     entradas_vr = df_receitas[df_receitas['Tipo'] == 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
     saidas_vr = df_gastos[df_gastos['Forma de Pagamento'] == 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
     saldo_vr = entradas_vr - saidas_vr
     
-    # Cálculos Exclusivos para Conta Corrente/Dinheiro
     entradas_conta = df_receitas[df_receitas['Tipo'] != 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
     saidas_conta = df_gastos[df_gastos['Forma de Pagamento'] != 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
     saldo_conta = entradas_conta - saidas_conta
     
-    # Visual dos Saldos
     col1, col2 = st.columns(2)
-    col1.metric("💳 Saldo em Conta/Dinheiro", f"R$ {saldo_conta:.2f}")
-    col2.metric("🍽️ Saldo Vale Refeição", f"R$ {saldo_vr:.2f}")
+    col1.metric("💳 Saldo em Conta", f"R$ {saldo_conta:.2f}")
+    col2.metric("🍽️ Saldo VR", f"R$ {saldo_vr:.2f}")
     
-    st.divider() # Uma linha para separar
+    st.divider()
 
     if not df_gastos.empty:
         st.subheader("Histórico de Gastos")
@@ -78,7 +74,7 @@ with aba_resumo:
         st.info("Nenhum gasto registrado.")
 
 # ==========================================
-# CONTEÚDO DA ABA 2: GASTOS
+# CONTEÚDO DA ABA 2: GASTOS (CORRIGIDA)
 # ==========================================
 with aba_gastos:
     st.header("Lançar Gasto")
@@ -96,18 +92,19 @@ with aba_gastos:
                                       columns=['Data', 'Categoria', 'Descrição', 'Forma de Pagamento', 'Valor'])
             df_gastos = pd.concat([df_gastos, novo_gasto], ignore_index=True)
             df_gastos.to_csv(ARQUIVO_GASTOS, index=False)
+            
             st.success(f"Gasto salvo com sucesso!")
+            time.sleep(1) # Aguarda 1 segundo para você ler a mensagem
+            st.rerun()    # Atualiza o app automaticamente!
 
 # ==========================================
-# CONTEÚDO DA ABA 3: RECEITAS (ATUALIZADA)
+# CONTEÚDO DA ABA 3: RECEITAS (CORRIGIDA)
 # ==========================================
 with aba_receitas:
     st.header("Entrada de Dinheiro / Benefício")
     
     with st.form("form_receita", clear_on_submit=True):
-        # Novo campo para separar as contas!
         tipo_entrada = st.selectbox("Onde esse valor entrou?", ["Conta Corrente (Dinheiro, Pix, Salário)", "Vale Refeição"])
-        
         data = st.date_input("Data do Recebimento", datetime.today())
         origem = st.text_input("Descrição (Ex: Salário, Recarga do VR)")
         valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
@@ -117,7 +114,10 @@ with aba_receitas:
             nova_receita = pd.DataFrame([[data, tipo_entrada, origem, valor]], columns=['Data', 'Tipo', 'Origem', 'Valor'])
             df_receitas = pd.concat([df_receitas, nova_receita], ignore_index=True)
             df_receitas.to_csv(ARQUIVO_RECEITAS, index=False)
+            
             st.success(f"Entrada salva com sucesso!")
+            time.sleep(1) # Aguarda 1 segundo
+            st.rerun()    # Atualiza o app automaticamente!
 
 # ==========================================
 # CONTEÚDO DA ABA 4: GERENCIAR
@@ -137,13 +137,13 @@ with aba_gerenciar:
                 df_gastos = df_gastos.drop(idx)
                 df_gastos.to_csv(ARQUIVO_GASTOS, index=False)
                 st.success("Gasto Excluído!")
+                time.sleep(1)
                 st.rerun()
         else:
             st.info("Não há gastos para excluir.")
             
     elif tipo_del == "Receitas":
         if not df_receitas.empty:
-            # Mostra também o Tipo de conta que foi registrada para facilitar
             opcoes = [f"ID {i} | {row['Data']} | {row.get('Tipo', 'Conta')} - {row['Origem']} | R$ {row['Valor']}" for i, row in df_receitas.iterrows()]
             escolha = st.selectbox("Selecione a receita:", opcoes)
             
@@ -152,17 +152,17 @@ with aba_gerenciar:
                 df_receitas = df_receitas.drop(idx)
                 df_receitas.to_csv(ARQUIVO_RECEITAS, index=False)
                 st.success("Receita Excluída!")
+                time.sleep(1)
                 st.rerun()
         else:
             st.info("Não há receitas para excluir.")
 
 # ==========================================
-# CONTEÚDO DA ABA 5: ASSESSOR (ATUALIZADA)
+# CONTEÚDO DA ABA 5: ASSESSOR
 # ==========================================
 with aba_assessor:
     st.header("Assessor Inteligente")
     
-    # O assessor agora só lê o que for dinheiro de verdade (ignora o VR)
     entradas_conta = df_receitas[df_receitas['Tipo'] != 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
     saidas_conta = df_gastos[df_gastos['Forma de Pagamento'] != 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
     sobra_real = entradas_conta - saidas_conta
