@@ -104,7 +104,9 @@ def _get_json(url):
         r = requests.get(url, timeout=6)
         r.raise_for_status()
         return r.json()
-    except Exception:
+    except Exception as erro:
+        # AGORA ELE IMPRIME O ERRO NA TELA PRETA (TERMINAL)
+        print(f"⚠️ Erro de conexão com a API: {erro}")
         return None  # o app continua funcionando se a API estiver fora do ar
 
 
@@ -130,7 +132,8 @@ def buscar_ipca_12m():
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
     """AwesomeAPI: dólar, euro e bitcoin em reais."""
-    dados = _get_json("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL")
+    # LINK DA API ATUALIZADO AQUI
+    dados = _get_json("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
     if not dados:
         return None
     try:
@@ -343,7 +346,7 @@ with aba_editar:
 # ==========================================
 with aba_assessor:
     st.header("Assessor Inteligente")
-    st.write("Analiso **apenas o dinheiro da conta** (o VR não pode ser investido) e descuento a fatura do cartão em aberto.")
+    st.write("Analiso **apenas o dinheiro da conta** (o VR não pode ser investido) e desconto a fatura do cartão em aberto.")
 
     colchao = st.number_input("Contas a pagar nos próximos dias (colchão)", min_value=0.0, step=100.0, format="%.2f")
     disponivel = saldo_conta - fatura_aberta - colchao
