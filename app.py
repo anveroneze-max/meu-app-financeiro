@@ -97,18 +97,17 @@ def filtrar_mes(df, mes):
 
 
 # ==========================================
-# APIs GRATUITAS (sem chave) - com disfarce para nuvem
+# APIs GRATUITAS (sem chave)
 # ==========================================
 def _get_json(url):
     try:
-        # Colocando um "disfarce" de navegador para a API não bloquear o servidor nas nuvens
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        r = requests.get(url, headers=headers, timeout=10) # Aumentado o tempo limite para 10 segundos
+        r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         return r.json()
     except Exception as erro:
         print(f"⚠️ Erro de conexão com a API: {erro}")
-        return None  # o app continua funcionando se a API estiver fora do ar
+        return None
 
 
 @st.cache_data(ttl=3600)
@@ -130,18 +129,23 @@ def buscar_ipca_12m():
     return (acumulado - 1) * 100
 
 
+# ==========================================
+# A MÁGICA ACONTECE AQUI: NOVA API DA HG BRASIL
+# ==========================================
 @st.cache_data(ttl=300)
 def buscar_cotacoes():
-    """AwesomeAPI: dólar, euro e bitcoin em reais."""
-    dados = _get_json("https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL")
-    if not dados:
+    """HG Brasil API: dólar, euro e bitcoin em reais (Amigável com a Nuvem)"""
+    dados = _get_json("https://api.hgbrasil.com/finance")
+    if not dados or "results" not in dados:
         return None
     try:
+        moedas = dados["results"]["currencies"]
         return {
-            nome: (float(dados[chave]["bid"]), float(dados[chave]["pctChange"]))
-            for nome, chave in [("💵 Dólar", "USDBRL"), ("💶 Euro", "EURBRL"), ("₿ Bitcoin", "BTCBRL")]
+            "💵 Dólar": (float(moedas["USD"]["buy"]), float(moedas["USD"]["variation"])),
+            "💶 Euro": (float(moedas["EUR"]["buy"]), float(moedas["EUR"]["variation"])),
+            "₿ Bitcoin": (float(moedas["BTC"]["buy"]), float(moedas["BTC"]["variation"]))
         }
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, TypeError):
         return None
 
 
@@ -215,7 +219,7 @@ with aba_resumo:
             d, nome = feriado
             st.caption(f"📅 Próximo feriado: {nome} ({d.strftime(FMT_CSV)}). "
                        "Atenção a vencimentos de boletos, que podem cair em dia não útil.")
-        st.caption("Fontes: Banco Central, AwesomeAPI e BrasilAPI.")
+        st.caption("Fontes: Banco Central, HG Brasil e BrasilAPI.") # Atualizado para HG Brasil
 
     st.divider()
 
