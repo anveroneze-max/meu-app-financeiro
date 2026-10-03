@@ -3,7 +3,6 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# Essa linha melhora o visual e adapta melhor para a tela do celular!
 st.set_page_config(page_title="App Financeiro", page_icon="💰", layout="centered")
 
 # Define os arquivos onde os dados serão salvos
@@ -12,9 +11,16 @@ ARQUIVO_RECEITAS = 'minhas_receitas.csv'
 
 # Função para criar os arquivos ou atualizar os antigos
 def inicializar_dados():
+    # Atualiza ou cria arquivo de Receitas com a nova coluna "Tipo"
     if not os.path.exists(ARQUIVO_RECEITAS):
-        pd.DataFrame(columns=['Data', 'Origem', 'Valor']).to_csv(ARQUIVO_RECEITAS, index=False)
-        
+        pd.DataFrame(columns=['Data', 'Tipo', 'Origem', 'Valor']).to_csv(ARQUIVO_RECEITAS, index=False)
+    else:
+        df_rec = pd.read_csv(ARQUIVO_RECEITAS)
+        if 'Tipo' not in df_rec.columns:
+            df_rec['Tipo'] = 'Conta Corrente' # Todo registro antigo vira Conta Corrente
+            df_rec.to_csv(ARQUIVO_RECEITAS, index=False)
+            
+    # Atualiza ou cria arquivo de Gastos
     if not os.path.exists(ARQUIVO_GASTOS):
         pd.DataFrame(columns=['Data', 'Categoria', 'Descrição', 'Forma de Pagamento', 'Valor']).to_csv(ARQUIVO_GASTOS, index=False)
     else:
@@ -31,9 +37,6 @@ df_receitas = pd.read_csv(ARQUIVO_RECEITAS)
 
 st.title("Meu Assessor 💰")
 
-# ==========================================
-# CRIANDO AS ABAS (NOVO VISUAL DO APP)
-# ==========================================
 aba_resumo, aba_gastos, aba_receitas, aba_gerenciar, aba_assessor = st.tabs([
     "📊 Resumo", 
     "💸 Gastos", 
@@ -42,18 +45,28 @@ aba_resumo, aba_gastos, aba_receitas, aba_gerenciar, aba_assessor = st.tabs([
     "🧠 Assessor"
 ])
 
-# CONTEÚDO DA ABA 1: RESUMO
+# ==========================================
+# CONTEÚDO DA ABA 1: RESUMO (ATUALIZADA)
+# ==========================================
 with aba_resumo:
     st.header("Painel Financeiro")
     
-    total_receitas = df_receitas['Valor'].sum() if not df_receitas.empty else 0.0
-    total_gastos = df_gastos['Valor'].sum() if not df_gastos.empty else 0.0
-    saldo = total_receitas - total_gastos
+    # Cálculos Exclusivos para o Vale Refeição
+    entradas_vr = df_receitas[df_receitas['Tipo'] == 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
+    saidas_vr = df_gastos[df_gastos['Forma de Pagamento'] == 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
+    saldo_vr = entradas_vr - saidas_vr
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Entradas", f"R$ {total_receitas:.2f}")
-    col2.metric("Saídas", f"R$ {total_gastos:.2f}")
-    col3.metric("Saldo", f"R$ {saldo:.2f}")
+    # Cálculos Exclusivos para Conta Corrente/Dinheiro
+    entradas_conta = df_receitas[df_receitas['Tipo'] != 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
+    saidas_conta = df_gastos[df_gastos['Forma de Pagamento'] != 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
+    saldo_conta = entradas_conta - saidas_conta
+    
+    # Visual dos Saldos
+    col1, col2 = st.columns(2)
+    col1.metric("💳 Saldo em Conta/Dinheiro", f"R$ {saldo_conta:.2f}")
+    col2.metric("🍽️ Saldo Vale Refeição", f"R$ {saldo_vr:.2f}")
+    
+    st.divider() # Uma linha para separar
 
     if not df_gastos.empty:
         st.subheader("Histórico de Gastos")
@@ -64,7 +77,9 @@ with aba_resumo:
     else:
         st.info("Nenhum gasto registrado.")
 
+# ==========================================
 # CONTEÚDO DA ABA 2: GASTOS
+# ==========================================
 with aba_gastos:
     st.header("Lançar Gasto")
     
@@ -83,29 +98,36 @@ with aba_gastos:
             df_gastos.to_csv(ARQUIVO_GASTOS, index=False)
             st.success(f"Gasto salvo com sucesso!")
 
-# CONTEÚDO DA ABA 3: RECEITAS
+# ==========================================
+# CONTEÚDO DA ABA 3: RECEITAS (ATUALIZADA)
+# ==========================================
 with aba_receitas:
-    st.header("Entrada de Dinheiro")
+    st.header("Entrada de Dinheiro / Benefício")
     
     with st.form("form_receita", clear_on_submit=True):
+        # Novo campo para separar as contas!
+        tipo_entrada = st.selectbox("Onde esse valor entrou?", ["Conta Corrente (Dinheiro, Pix, Salário)", "Vale Refeição"])
+        
         data = st.date_input("Data do Recebimento", datetime.today())
-        origem = st.text_input("Origem (Ex: Salário, Pix)")
+        origem = st.text_input("Descrição (Ex: Salário, Recarga do VR)")
         valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-        submit = st.form_submit_button("Salvar Receita")
+        submit = st.form_submit_button("Salvar Entrada")
 
         if submit:
-            nova_receita = pd.DataFrame([[data, origem, valor]], columns=['Data', 'Origem', 'Valor'])
+            nova_receita = pd.DataFrame([[data, tipo_entrada, origem, valor]], columns=['Data', 'Tipo', 'Origem', 'Valor'])
             df_receitas = pd.concat([df_receitas, nova_receita], ignore_index=True)
             df_receitas.to_csv(ARQUIVO_RECEITAS, index=False)
-            st.success(f"Receita salva com sucesso!")
+            st.success(f"Entrada salva com sucesso!")
 
+# ==========================================
 # CONTEÚDO DA ABA 4: GERENCIAR
+# ==========================================
 with aba_gerenciar:
     st.header("Excluir Registros")
     
-    tipo = st.radio("O que você deseja excluir?", ["Gastos", "Receitas"])
+    tipo_del = st.radio("O que você deseja excluir?", ["Gastos", "Receitas"])
     
-    if tipo == "Gastos":
+    if tipo_del == "Gastos":
         if not df_gastos.empty:
             opcoes = [f"ID {i} | {row['Data']} | {row['Descrição']} | R$ {row['Valor']}" for i, row in df_gastos.iterrows()]
             escolha = st.selectbox("Selecione o gasto:", opcoes)
@@ -114,55 +136,60 @@ with aba_gerenciar:
                 idx = int(escolha.split(" | ")[0].replace("ID ", ""))
                 df_gastos = df_gastos.drop(idx)
                 df_gastos.to_csv(ARQUIVO_GASTOS, index=False)
-                st.success("Excluído!")
+                st.success("Gasto Excluído!")
                 st.rerun()
         else:
             st.info("Não há gastos para excluir.")
             
-    elif tipo == "Receitas":
+    elif tipo_del == "Receitas":
         if not df_receitas.empty:
-            opcoes = [f"ID {i} | {row['Data']} | {row['Origem']} | R$ {row['Valor']}" for i, row in df_receitas.iterrows()]
+            # Mostra também o Tipo de conta que foi registrada para facilitar
+            opcoes = [f"ID {i} | {row['Data']} | {row.get('Tipo', 'Conta')} - {row['Origem']} | R$ {row['Valor']}" for i, row in df_receitas.iterrows()]
             escolha = st.selectbox("Selecione a receita:", opcoes)
             
             if st.button("Excluir Receita Selecionada"):
                 idx = int(escolha.split(" | ")[0].replace("ID ", ""))
                 df_receitas = df_receitas.drop(idx)
                 df_receitas.to_csv(ARQUIVO_RECEITAS, index=False)
-                st.success("Excluído!")
+                st.success("Receita Excluída!")
                 st.rerun()
         else:
             st.info("Não há receitas para excluir.")
 
-# CONTEÚDO DA ABA 5: ASSESSOR
+# ==========================================
+# CONTEÚDO DA ABA 5: ASSESSOR (ATUALIZADA)
+# ==========================================
 with aba_assessor:
     st.header("Assessor Inteligente")
     
-    total_receitas = df_receitas['Valor'].sum() if not df_receitas.empty else 0.0
-    total_gastos = df_gastos['Valor'].sum() if not df_gastos.empty else 0.0
-    sobra = total_receitas - total_gastos
+    # O assessor agora só lê o que for dinheiro de verdade (ignora o VR)
+    entradas_conta = df_receitas[df_receitas['Tipo'] != 'Vale Refeição']['Valor'].sum() if not df_receitas.empty else 0.0
+    saidas_conta = df_gastos[df_gastos['Forma de Pagamento'] != 'Vale Refeição']['Valor'].sum() if not df_gastos.empty else 0.0
+    sobra_real = entradas_conta - saidas_conta
     
-    st.write(f"**Saldo Atual:** R$ {sobra:.2f}")
+    st.write("Eu analiso **apenas o seu saldo em dinheiro (fora o VR)** para recomendar investimentos, afinal, o Vale Refeição não pode ser investido.")
+    st.write(f"**Saldo em Conta (Dinheiro Disponível):** R$ {sobra_real:.2f}")
 
-    if total_receitas > 0:
-        if sobra <= 0:
-            st.error("⚠️ Você gastou tudo ou mais do que ganhou. Organize o orçamento antes de investir.")
+    if entradas_conta > 0:
+        if sobra_real <= 0:
+            st.error("⚠️ Você gastou todo o seu dinheiro da conta ou está no negativo. Ajuste o orçamento antes de investir.")
         else:
-            st.success(f"Você tem **R$ {sobra:.2f}** livres para investir.")
+            st.success(f"Você tem **R$ {sobra_real:.2f}** livres na conta para investir.")
             perfil = st.radio("Seu perfil de investidor:", 
                               ["Conservador", "Moderado", "Arrojado"])
-            st.subheader("Recomendação:")
+            st.subheader("Recomendação de Carteira:")
             
             if "Conservador" in perfil:
-                st.write(f"🛡️ **Reserva de Emergência:** R$ {sobra * 0.80:.2f} (80%)")
-                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra * 0.20:.2f} (20%)")
+                st.write(f"🛡️ **Reserva de Emergência:** R$ {sobra_real * 0.80:.2f} (80%)")
+                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra_real * 0.20:.2f} (20%)")
             elif "Moderado" in perfil:
-                st.write(f"🛡️ **Tesouro IPCA+:** R$ {sobra * 0.50:.2f} (50%)")
-                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra * 0.30:.2f} (30%)")
-                st.write(f"📈 **Ações/ETFs:** R$ {sobra * 0.20:.2f} (20%)")
+                st.write(f"🛡️ **Tesouro IPCA+:** R$ {sobra_real * 0.50:.2f} (50%)")
+                st.write(f"🏢 **Fundos Imobiliários:** R$ {sobra_real * 0.30:.2f} (30%)")
+                st.write(f"📈 **Ações/ETFs:** R$ {sobra_real * 0.20:.2f} (20%)")
             else:
-                st.write(f"📈 **Ações e ETFs Globais:** R$ {sobra * 0.40:.2f} (40%)")
-                st.write(f"🏢 **Fundos Imobiliários e Fiagros:** R$ {sobra * 0.30:.2f} (30%)")
-                st.write(f"🛡️ **Renda Fixa:** R$ {sobra * 0.20:.2f} (20%)")
-                st.write(f"₿ **Criptomoedas:** R$ {sobra * 0.10:.2f} (10%)")
+                st.write(f"📈 **Ações e ETFs Globais:** R$ {sobra_real * 0.40:.2f} (40%)")
+                st.write(f"🏢 **Fundos Imobiliários e Fiagros:** R$ {sobra_real * 0.30:.2f} (30%)")
+                st.write(f"🛡️ **Renda Fixa:** R$ {sobra_real * 0.20:.2f} (20%)")
+                st.write(f"₿ **Criptomoedas:** R$ {sobra_real * 0.10:.2f} (10%)")
     else:
-        st.info("Registre alguma receita primeiro!")
+        st.info("Registre algum salário/dinheiro na Conta Corrente primeiro!")
